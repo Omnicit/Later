@@ -35,7 +35,7 @@ Properties {
     # Typically you wouldn't put any file under the src dir unless the file was going to ship with
     # the module. However, if there are such files, add their $SrcRootDir relative paths to the exclude list.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $Exclude = @()
+    $Exclude = @('Inside LATER.exe.ps1', '.gitkeep')
 
     # ------------------ Script analysis properties ---------------------------
 
