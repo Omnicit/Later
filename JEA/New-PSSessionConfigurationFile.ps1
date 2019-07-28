@@ -1,11 +1,12 @@
 ﻿$SessionParams = @{
     'Path'                = "C:\JEA\Requester.pssc"
-    'LanguageMode'        = 'RestrictedLanguage'
+    'LanguageMode'        = 'NoLanguage'
     'ExecutionPolicy'     = 'RemoteSigned'
-    'SessionType'         = 'RestrictedRemoteServer'
+    'SessionType'         = 'Default'
     'TranscriptDirectory' = 'C:\PSTranscripts\'
     'Author'              = 'Omnicit AB'
-    'RoleDefinitions'     = @{ 'CONTOSO\res-sys-later requester' = @{ RoleCapabilityFiles = 'C:\JEA\Requester.psrc' }}
+    'ModulesToImport'     = 'LATER'
+    'RoleDefinitions'     = @{ 'CONTOSO\res-sys-later requester' = @{ RoleCapabilities = 'Requester' } }
 }
 
 New-PSSessionConfigurationFile @SessionParams
@@ -17,10 +18,10 @@ $RegisterParams = @{
 }
 
 Register-PSSessionConfiguration @RegisterParams
- 
+
 # $JEA = Get-PSSessionConfiguration -Name LATER
 
 $RunAsCred = (Get-Credential 'CONTOSO\svc-admpwd')
 Set-PSSessionConfiguration -Name LATER -RunAsCredential $RunAsCred
 
-# Unregister-PSSessionConfiguration -Name LATER
+# Unregister-PSSessionConfiguration -Name LATER -Force
