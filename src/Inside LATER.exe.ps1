@@ -2,43 +2,61 @@
     # Server configured with the JEA instance
     $LATERServer = 'ZPSQL01.contoso.com'
     try {
+        $progressbaroverlay1.Visible = $true
         try {
-            $progressbaroverlay1.Visible = $true
-            $SessionOption = New-PSSessionOption -IdleTimeout 60000
-            $Session = New-PSSession -ComputerName $LATERServer -ConfigurationName LATER -SessionOption $SessionOption
-            $progressbaroverlay1.Value = 10
+            $SessionOption = New-PSSessionOption -IdleTimeout 60000 -ErrorAction Stop
+            $Session = New-PSSession -ComputerName $LATERServer -ConfigurationName LATER -SessionOption $SessionOption -ErrorAction Stop
+        }
+        catch {
+            throw [System.AccessViolationException]::New('Unable to connect to request server')
+        }
+        $progressbaroverlay1.Value = 10
 
-            # Retrive the current LAPS password for $Env:ComputerName using Invoke-Command. Enter-PSSession and Import-PSSession is unavailable because of the JEA Configuration.
-            $Later = Invoke-Command -Session $Session -ScriptBlock { Get-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME }
-            $progressbaroverlay1.Value = 20
+        # Retrive the current LAPS password for $Env:ComputerName using Invoke-Command. Enter-PSSession and Import-PSSession is unavailable because of the JEA Configuration.
+        try {
+            $Later = Invoke-Command -Session $Session -ScriptBlock { Get-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction Stop } -ErrorAction Stop
+        }
+        catch [System.Management.Automation.Runspaces.InvalidRunspaceStateException] {
+            throw [System.Management.Automation.Runspaces.InvalidRunspaceStateException]::New('Restart the Later application and try again')
+        }
+        catch [System.Management.Automation.RemoteException] {
+            throw [System.AccessViolationException]::New(($_.Exception.Message -replace '^.*:\s'))
+        }
+        catch {
+            throw [System.InvalidOperationException]::New('Something went wrong, contact administrator with the current timestamp {0}' -f ([datetime]::Now.ToString()))
+        }
+        $progressbaroverlay1.Value = 20
 
-            # Update Group Policy to allow for 90 (with +- 30 minutes offset time) of administrator time.
-            $null = gpupdate.exe /force
-            $progressbaroverlay1.Value = 30
+        # Update Group Policy to allow for 90 (with +- 30 minutes offset time) of administrator time.
+        $null = gpupdate.exe /force
+        $progressbaroverlay1.Value = 30
 
-            <#
+        <#
             As encoded command
             Add-LocalGroupMember -Group Administrators -Member 'NT Authority\Interactive';
             Add-Type -AssemblyName System.Web;
             Set-LocalUser -Name Administrator -Password $Random ([System.Web.Security.Membership]::GeneratePassword(24, 5) | ConvertTo-SecureString -AsPlainText -Force)
             #>
-            $Command = 'QQBkAGQALQBMAG8AYwBhAGwARwByAG8AdQBwAE0AZQBtAGIAZQByACAALQBHAHIAbwB1AHAAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByAHMAIAAtAE0AZQBtAGIAZQByACAAJwBOAFQAIABBAHUAdABoAG8AcgBpAHQAeQBcAEkAbgB0AGUAcgBhAGMAdABpAHYAZQAnADsADQAKAEEAZABkAC0AVAB5AHAAZQAgAC0AQQBzAHMAZQBtAGIAbAB5AE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFcAZQBiADsADQAKAFMAZQB0AC0ATABvAGMAYQBsAFUAcwBlAHIAIAAtAE4AYQBtAGUAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByACAALQBQAGEAcwBzAHcAbwByAGQAIAAoAFsAUwB5AHMAdABlAG0ALgBXAGUAYgAuAFMAZQBjAHUAcgBpAHQAeQAuAE0AZQBtAGIAZQByAHMAaABpAHAAXQA6ADoARwBlAG4AZQByAGEAdABlAFAAYQBzAHMAdwBvAHIAZAAoADIANAAsACAANQApACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0AUwBlAGMAdQByAGUAUwB0AHIAaQBuAGcAIAAtAEEAcwBQAGwAYQBpAG4AVABlAHgAdAAgAC0ARgBvAHIAYwBlACkA'
-            $Cred = [pscredential]::new('Administrator', (ConvertTo-SecureString -String $Later.Password -AsPlainText -Force))
-            $progressbaroverlay1.Value = 40
-            Start-Process -FilePath PowerShell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $Command" -Credential $Cred
-            $progressbaroverlay1.Value = 50
+        $Command = 'QQBkAGQALQBMAG8AYwBhAGwARwByAG8AdQBwAE0AZQBtAGIAZQByACAALQBHAHIAbwB1AHAAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByAHMAIAAtAE0AZQBtAGIAZQByACAAJwBOAFQAIABBAHUAdABoAG8AcgBpAHQAeQBcAEkAbgB0AGUAcgBhAGMAdABpAHYAZQAnADsADQAKAEEAZABkAC0AVAB5AHAAZQAgAC0AQQBzAHMAZQBtAGIAbAB5AE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFcAZQBiADsADQAKAFMAZQB0AC0ATABvAGMAYQBsAFUAcwBlAHIAIAAtAE4AYQBtAGUAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByACAALQBQAGEAcwBzAHcAbwByAGQAIAAoAFsAUwB5AHMAdABlAG0ALgBXAGUAYgAuAFMAZQBjAHUAcgBpAHQAeQAuAE0AZQBtAGIAZQByAHMAaABpAHAAXQA6ADoARwBlAG4AZQByAGEAdABlAFAAYQBzAHMAdwBvAHIAZAAoADIANAAsACAANQApACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0AUwBlAGMAdQByAGUAUwB0AHIAaQBuAGcAIAAtAEEAcwBQAGwAYQBpAG4AVABlAHgAdAAgAC0ARgBvAHIAYwBlACkA'
+        $Cred = [pscredential]::new('Administrator', (ConvertTo-SecureString -String $Later.Password -AsPlainText -Force))
+        $progressbaroverlay1.Value = 40
+        Start-Process -FilePath PowerShell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $Command" -Credential $Cred
+        $progressbaroverlay1.Value = 50
 
-            # Update password for LAPS to avoid reuse, will be applied after next gpupdate.
-            $Later = Invoke-Command -Session $Session -ScriptBlock { Reset-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME }
-            $progressbaroverlay1.Value = 60
+        # Update password for LAPS to avoid reuse, will be applied after next gpupdate.
+        $Later = Invoke-Command -Session $Session -ScriptBlock { Reset-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction SilentlyContinue } -ErrorAction SilentlyContinue
+        $progressbaroverlay1.Value = 60
 
-            Remove-PSSession -Session $Session -Confirm:$false
-            $progressbaroverlay1.Value = 70
+        Remove-PSSession -Session $Session -Confirm:$false -ErrorAction SilentlyContinue
+        $progressbaroverlay1.Value = 70
 
-            # Verify that LATER is correctly applied
+        # Verify that LATER is correctly applied
+        $Count = 0
+        do {
+            $Count++
             try {
-                Start-Sleep -Seconds 1 # Sleep for 1 second because of slow enumeration for local group members after add.
-                $Members = Get-LocalGroupMember -Group Administrators
+                Start-Sleep -Seconds 1 # Sleep for 2 seconds because of slow enumeration for local group members after add.
+                $Members = Get-LocalGroupMember -Group Administrators -ErrorAction Stop
             }
             catch {
                 $Members = net.exe LocalGroup Administrators | Select-String 'NT AUTHORITY\\INTERACTIVE' | Select-Object -Property @{ Name = 'Name'; Expression = { $_.Line } }
@@ -48,14 +66,16 @@
                 # Success
                 $progressbaroverlay1.Value = 100
                 $richtextbox2.Visible = $true
+                break
             }
-            else {
+            elseif ($Count -eq 5) {
                 throw [System.MissingMemberException]::New('Something went wrong')
             }
+            else {
+                continue
+            }
         }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
+        until ($Count -eq 5)
     }
     catch {
         $richtextbox3.Text = ('ERROR: {0}' -f $_.Exception.Message)
