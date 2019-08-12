@@ -14,7 +14,9 @@
 
         # Retrive the current LAPS password for $Env:ComputerName using Invoke-Command. Enter-PSSession and Import-PSSession is unavailable because of the JEA Configuration.
         try {
-            $Later = Invoke-Command -Session $Session -ScriptBlock { Get-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction Stop } -ErrorAction Stop
+            $Later = Invoke-Command -Session $Session -ScriptBlock {
+                Get-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction Stop
+            } -ErrorAction Stop
         }
         catch [System.Management.Automation.Runspaces.InvalidRunspaceStateException] {
             throw [System.Management.Automation.Runspaces.InvalidRunspaceStateException]::New('Restart the Later application and try again')
@@ -30,13 +32,12 @@
         # Update Group Policy to allow for 90 (with +- 30 minutes offset time) of administrator time.
         $null = gpupdate.exe /force
         $progressbaroverlay1.Value = 30
-
         <#
             As encoded command
             Add-LocalGroupMember -Group Administrators -Member 'NT Authority\Interactive';
             Add-Type -AssemblyName System.Web;
             Set-LocalUser -Name Administrator -Password $Random ([System.Web.Security.Membership]::GeneratePassword(24, 5) | ConvertTo-SecureString -AsPlainText -Force)
-            #>
+        #>
         $Command = 'QQBkAGQALQBMAG8AYwBhAGwARwByAG8AdQBwAE0AZQBtAGIAZQByACAALQBHAHIAbwB1AHAAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByAHMAIAAtAE0AZQBtAGIAZQByACAAJwBOAFQAIABBAHUAdABoAG8AcgBpAHQAeQBcAEkAbgB0AGUAcgBhAGMAdABpAHYAZQAnADsADQAKAEEAZABkAC0AVAB5AHAAZQAgAC0AQQBzAHMAZQBtAGIAbAB5AE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFcAZQBiADsADQAKAFMAZQB0AC0ATABvAGMAYQBsAFUAcwBlAHIAIAAtAE4AYQBtAGUAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByACAALQBQAGEAcwBzAHcAbwByAGQAIAAoAFsAUwB5AHMAdABlAG0ALgBXAGUAYgAuAFMAZQBjAHUAcgBpAHQAeQAuAE0AZQBtAGIAZQByAHMAaABpAHAAXQA6ADoARwBlAG4AZQByAGEAdABlAFAAYQBzAHMAdwBvAHIAZAAoADIANAAsACAANQApACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0AUwBlAGMAdQByAGUAUwB0AHIAaQBuAGcAIAAtAEEAcwBQAGwAYQBpAG4AVABlAHgAdAAgAC0ARgBvAHIAYwBlACkA'
         $Cred = [pscredential]::new('Administrator', (ConvertTo-SecureString -String $Later.Password -AsPlainText -Force))
         $progressbaroverlay1.Value = 40
@@ -44,7 +45,9 @@
         $progressbaroverlay1.Value = 50
 
         # Update password for LAPS to avoid reuse, will be applied after next gpupdate.
-        $Later = Invoke-Command -Session $Session -ScriptBlock { Reset-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction SilentlyContinue } -ErrorAction SilentlyContinue
+        $Later = Invoke-Command -Session $Session -ScriptBlock {
+            Reset-CurrentComputerLATER -ComputerName $using:env:COMPUTERNAME -ErrorAction SilentlyContinue
+        } -ErrorAction SilentlyContinue
         $progressbaroverlay1.Value = 60
 
         Remove-PSSession -Session $Session -Confirm:$false -ErrorAction SilentlyContinue
@@ -55,11 +58,15 @@
         do {
             $Count++
             try {
-                Start-Sleep -Seconds 1 # Sleep for 2 seconds because of slow enumeration for local group members after add.
+                Start-Sleep -Seconds 1
                 $Members = Get-LocalGroupMember -Group Administrators -ErrorAction Stop
             }
             catch {
-                $Members = net.exe LocalGroup Administrators | Select-String 'NT AUTHORITY\\INTERACTIVE' | Select-Object -Property @{ Name = 'Name'; Expression = { $_.Line } }
+                $Members = net.exe LocalGroup Administrators | Select-String 'NT AUTHORITY\\INTERACTIVE' | Select-Object -Property @{
+                    Name = 'Name'; Expression = {
+                        $_.Line
+                    }
+                }
             }
             $progressbaroverlay1.Value = 80
             if ($Members.Name -contains 'NT AUTHORITY\INTERACTIVE') {
