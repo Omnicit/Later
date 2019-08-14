@@ -21,12 +21,19 @@ function Get-CurrentComputerLATER {
             Mandatory
         )]
         [ValidateNotNullOrEmpty()]
-        [string]$ComputerName
+        [string]$ComputerName,
+
+        # Input a valid Group Name that you are member of. Used for policy throttling.
+        [Parameter(
+            Mandatory
+        )]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$Group
     )
     process {
         if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
             try {
-                $WSManInstance = Get-WSManInstance -ConnectionURI $PSSenderInfo.ConnectionString -ResourceURI shell -Enumerate
+                $WSManInstance = Get-WSManInstance -ConnectionURI $PSSenderInfo.ConnectionString -ResourceURI shell -Enumerate -ErrorAction Stop
 
                 $BaseQuery = @"
 SELECT TOP 10 [UserId]
@@ -37,7 +44,7 @@ FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEUSERNAME' Order By TimeStam
 "@
 
                 $SQLQuery = $BaseQuery -replace 'REPLACEUSERNAME', $PSSenderInfo.ConnectedUser
-                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $SQLQuery
+                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $SQLQuery -ErrorAction Stop
                 $Now = [datetime]::Now
 
                 if ($null -ne $PastLater) {
@@ -50,7 +57,7 @@ FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEUSERNAME' Order By TimeStam
                             ComputerName      = $ComputerName
                             ComputerIPAddress = $WSManInstance.ClientIP
                             Error             = $ErrorNotification
-                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests
+                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification)
                     }
                     elseif ($PastLater[0].Timestamp -ge $Now.AddHours(-1)) {
@@ -60,17 +67,17 @@ FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEUSERNAME' Order By TimeStam
                             ComputerName      = $ComputerName
                             ComputerIPAddress = $WSManInstance.ClientIP
                             Error             = $ErrorNotification
-                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests
+                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
 
                         throw [System.AccessViolationException]::New($ErrorNotification)
                     }
                 }
-                Get-AdmPwdPassword -ComputerName $ComputerName
+                Get-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
                 [PSCustomObject]@{
                     UserId            = $PSSenderInfo.ConnectedUser
                     ComputerName      = $ComputerName
                     ComputerIPAddress = $WSManInstance.ClientIP
-                } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table Requests
+                } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table Requests -ErrorAction Stop
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
