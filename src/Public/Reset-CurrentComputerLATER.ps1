@@ -26,7 +26,7 @@
     process {
         if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
             try {
-                Reset-AdmPwdPassword -ComputerName $ComputerName
+                Reset-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
