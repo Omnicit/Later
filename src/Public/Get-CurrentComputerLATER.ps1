@@ -34,50 +34,120 @@ function Get-CurrentComputerLATER {
         if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
             try {
                 $WSManInstance = Get-WSManInstance -ConnectionURI $PSSenderInfo.ConnectionString -ResourceURI shell -Enumerate -ErrorAction Stop
+                try {
+                    $ComputerNameByAddress = ([System.Net.Dns]::GetHostByAddress($WSManInstance.ClientIP).HostName)
+                }
+                catch {
+                    $ComputerNameByAddress = 'NULL'
+                }
 
-                $BaseQuery = @"
-SELECT TOP 10 [UserId]
+                $User = Get-ADUser -Identity ($PSSenderInfo.ConnectedUser -replace '^(?:.+\\)') -ErrorAction Stop
+                $UserPolicyGroups = Get-ADPrincipalGroupMembership -Identity $User -ErrorAction Stop | Where-Object { $_.Name -match '^(res-sys-later.*$)' }
+
+                $BasePolicyQuery = @"
+SELECT [Id]
+      ,[GroupId]
+      ,[Computer]
+      ,[TimesDay]
+FROM [Later].[dbo].[Policy] WHERE GroupId IN (REPLACEGUID)
+"@
+
+                $PolicySQLQuery = $BasePolicyQuery -replace 'REPLACEGUID', ("'{0}'" -f ($UserPolicyGroups.objectGUID.Guid -join "', '"))
+                try {
+                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Role
+                    $Policy = $Policies[0]
+                    # Preferably log that the user has more than one policy if ($Policies -gt 1)
+                }
+                catch {
+                    throw [System.AccessViolationException]::New('No L.A.T.E.R policy found for user.')
+                }
+
+                $BasePastLaterQuery = @"
+SELECT TOP 1000 [UserId]
       ,[ComputerName]
       ,[ComputerIPAddress]
       ,[Timestamp]
-FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEUSERNAME' Order By TimeStamp Desc
+FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEGUID' Order By TimeStamp Desc
 "@
 
-                $SQLQuery = $BaseQuery -replace 'REPLACEUSERNAME', $PSSenderInfo.ConnectedUser
-                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $SQLQuery -ErrorAction Stop
-                $Now = [datetime]::Now
+                $PastLaterSQLQuery = $BasePastLaterQuery -replace 'REPLACEGUID', $User.objectGUID.Guid
+                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $PastLaterSQLQuery -ErrorAction Stop
 
+                $Request = [PSCustomObject]@{
+                    UserId                = $User.ObjectGUID.Guid
+                    ComputerName          = $ComputerName
+                    ComputerNameByAddress = $ComputerNameByAddress
+                    ComputerIPAddress     = $WSManInstance.ClientIP
+                }
+
+                $Now = [datetime]::Now
                 if ($null -ne $PastLater) {
                     $TimeStampString = $PastLater.TimeStamp.ForEach( { $_.ToString() })
                     $RequestsToday = ($TimeStampString -replace '\s.*$') -match $Today
-                    if ($RequestsToday -ge 3) {
-                        $ErrorNotification = 'No more requests allowed for {0} today' -f $PSSenderInfo.ConnectedUser
-                        [PSCustomObject]@{
-                            UserId            = $PSSenderInfo.ConnectedUser
-                            ComputerName      = $ComputerName
-                            ComputerIPAddress = $WSManInstance.ClientIP
-                            Error             = $ErrorNotification
-                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
-                        throw [System.AccessViolationException]::New($ErrorNotification)
-                    }
-                    elseif ($PastLater[0].Timestamp -ge $Now.AddHours(-1)) {
-                        $ErrorNotification = 'Request already submitted for this user, wait time {0} Minutes' -f ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
-                        [PSCustomObject]@{
-                            UserId            = $PSSenderInfo.ConnectedUser
-                            ComputerName      = $ComputerName
-                            ComputerIPAddress = $WSManInstance.ClientIP
-                            Error             = $ErrorNotification
-                        } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
 
-                        throw [System.AccessViolationException]::New($ErrorNotification)
+                    if ($Policy.Computer -eq 1) {
+                        if ($PastLater.ComputerName -gt 1) {
+                            $ErrorNotification = '{0} only permitted to request for computer name {1}.' -f $User.ObjectGUID.Guid, $ComputerName
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                        elseif ($RequestsToday -ge $Policy.TimesDay) {
+                            $ErrorNotification = 'No more requests allowed for {0} today.' -f $User.ObjectGUID.Guid
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                        elseif ($PastLater[0].Timestamp -ge $Now.AddHours(-1)) {
+                            $ErrorNotification = 'Request already submitted for {0}, wait time {1} Minutes.' -f $User.ObjectGUID.Guid, ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                    }
+                    else {
+                        $CurrentComputerPastLater = $PastLater | Where-Object { $_.ComputerName -eq $ComputerName }
+                        $TimeStampString = $PastLater.TimeStamp.ForEach( { $_.ToString() })
+                        $RequestsToday = ($TimeStampString -replace '\s.*$') -match $Today
+                        $CurrentComputerTimeStampString = $CurrentComputerPastLater.TimeStamp.ForEach( { $_.ToString() })
+                        $CurrentComputerRequestsToday = ($CurrentComputerTimeStampString -replace '\s.*$') -match $Today
+
+                        if ($PastLater.ComputerName -gt $Policy.Computer) {
+                            $ErrorNotification = 'User {0} only permitted to request for {1} computers. Limit reached, contact support.' -f $User.ObjectGUID.Guid, $Policy.Computer
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                        elseif ($RequestsToday -ge ($Policy.TimesDay * $Policy.Computer)) {
+                            $ErrorNotification = 'No more requests allowed for {0} today.' -f $User.ObjectGUID.Guid
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                        elseif ($CurrentComputerRequestsToday -ge $Policy.TimesDay) {
+                            $ErrorNotification = 'No more requests allowed for computer name {0} for user {1} today.' -f $ComputerName, $User.ObjectGUID.Guid
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
+                        elseif ($CurrentComputerPastLater[0].Timestamp -ge $Now.AddHours(-1)) {
+                            $ErrorNotification = 'Request already submitted for {0}, wait time {1} Minutes.' -f $User.ObjectGUID.Guid, ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
+                            $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                            $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                            throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
+                        }
                     }
                 }
-                Get-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
-                [PSCustomObject]@{
-                    UserId            = $PSSenderInfo.ConnectedUser
-                    ComputerName      = $ComputerName
-                    ComputerIPAddress = $WSManInstance.ClientIP
-                } | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table Requests -ErrorAction Stop
+                try {
+                    Get-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
+                    $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table Requests -ErrorAction Stop
+                }
+                catch {
+                    $ErrorNotification = 'Unknown error: {0}' -f $_.Exception.Message
+                    $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
+                    $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                    throw [System.SystemException]::New($ErrorNotification)
+                }
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
