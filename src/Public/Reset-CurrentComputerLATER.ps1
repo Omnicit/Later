@@ -27,6 +27,7 @@
         if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
             try {
                 Reset-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
+                # Preferably log when a Reset-AdmPwdPassword was issued.
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
