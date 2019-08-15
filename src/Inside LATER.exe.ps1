@@ -4,14 +4,14 @@
     try {
         $progressbaroverlay1.Visible = $true
         try {
-            [string[]]$Group = ((whoami /groups /fo csv | ConvertFrom-Csv -Delimiter ',' -ErrorAction Stop).'Group Name' -match '^(?:.+\\)(res-sys-later\spol\d+$)' -replace '^(?:.+\\)')
-            if ($Group.Count -eq 0) {
+            [string[]]$Groups = ((whoami /groups /fo csv | ConvertFrom-Csv -Delimiter ',' -ErrorAction Stop).'Group Name' -match '^(?:.+\\)(res-sys-later\s(pol\d+|requester)$)' -replace '^(?:.+\\)')
+            if ($Groups.Count -lt 2) {
                 throw [System.Management.Automation.RemoteException]::New('Missing policy groups to request administrator access, contact support.')
             }
             $progressbaroverlay1.Value = 10
         }
         catch {
-            throw [System.Management.Automation.RemoteException]::New('Unable to retrieve group membership.')
+            throw [System.Management.Automation.RemoteException]::New('Missing policy groups to request administrator access, contact support.')
         }
         try {
             $SessionOption = New-PSSessionOption -IdleTimeout 60000 -ErrorAction Stop
@@ -19,7 +19,7 @@
             $progressbaroverlay1.Value = 20
         }
         catch {
-            throw [System.AccessViolationException]::New('Unable to connect to request server')
+            throw [System.AccessViolationException]::New('Unable to connect to request server, contact support')
         }
 
         # Retrieve the current LAPS password for $Env:ComputerName using Invoke-Command. Enter-PSSession and Import-PSSession is unavailable because of the JEA Configuration.
@@ -36,11 +36,11 @@
             throw [System.AccessViolationException]::New(($_.Exception.Message -replace '^.*:\s'))
         }
         catch {
-            throw [System.InvalidOperationException]::New('Something went wrong, contact administrator with the current timestamp {0}' -f ([datetime]::Now.ToString()))
+            throw [System.InvalidOperationException]::New('Something went wrong, contact support with the current timestamp {0}' -f ([datetime]::Now.ToString()))
         }
 
         # Update Group Policy to allow for 90 (with +- 30 minutes offset time) of administrator time.
-        $null = gpupdate.exe /force
+        $null = 'N' | gpupdate.exe /force
         $progressbaroverlay1.Value = 40
         <#
             As encoded command
@@ -51,7 +51,7 @@
         $Command = 'QQBkAGQALQBMAG8AYwBhAGwARwByAG8AdQBwAE0AZQBtAGIAZQByACAALQBHAHIAbwB1AHAAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByAHMAIAAtAE0AZQBtAGIAZQByACAAJwBOAFQAIABBAHUAdABoAG8AcgBpAHQAeQBcAEkAbgB0AGUAcgBhAGMAdABpAHYAZQAnADsADQAKAEEAZABkAC0AVAB5AHAAZQAgAC0AQQBzAHMAZQBtAGIAbAB5AE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFcAZQBiADsADQAKAFMAZQB0AC0ATABvAGMAYQBsAFUAcwBlAHIAIAAtAE4AYQBtAGUAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByACAALQBQAGEAcwBzAHcAbwByAGQAIAAoAFsAUwB5AHMAdABlAG0ALgBXAGUAYgAuAFMAZQBjAHUAcgBpAHQAeQAuAE0AZQBtAGIAZQByAHMAaABpAHAAXQA6ADoARwBlAG4AZQByAGEAdABlAFAAYQBzAHMAdwBvAHIAZAAoADIANAAsACAANQApACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0AUwBlAGMAdQByAGUAUwB0AHIAaQBuAGcAIAAtAEEAcwBQAGwAYQBpAG4AVABlAHgAdAAgAC0ARgBvAHIAYwBlACkA'
         $Cred = [pscredential]::new('Administrator', (ConvertTo-SecureString -String $Later.Password -AsPlainText -Force))
         $progressbaroverlay1.Value = 50
-        Start-Process -FilePath PowerShell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $Command" -Credential $Cred
+        Start-Process -WindowStyle Hidden -FilePath PowerShell.exe -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $Command" -Credential $Cred
         $progressbaroverlay1.Value = 60
 
         # Update password for LAPS to avoid reuse, will be applied after next gpupdate.
@@ -95,7 +95,7 @@
         until ($Count -eq 5)
     }
     catch {
-        $richtextbox3.Text = ('ERROR: {0}' -f $_.Exception.Message)
+        $richtextbox3.Text = ('Error: {0}' -f $_.Exception.Message)
         $richtextbox3.Visible = $true
     }
 }
