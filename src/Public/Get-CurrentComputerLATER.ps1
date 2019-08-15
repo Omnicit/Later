@@ -23,12 +23,22 @@ function Get-CurrentComputerLATER {
         [ValidateNotNullOrEmpty()]
         [string]$ComputerName
     )
+    begin {
+        [string]$Database = 'Later'
+        [string]$Schema = 'dbo'
+        [string]$SqlInstance = 'localhost'
+        [string]$TablePolicy = 'Policy'
+        [string]$TableRequests = 'Requests'
+        [string]$TableFailedRequests = 'FailedRequests'
+        # All L.A.T.E.R Active Directory Groups are named with the prefix 'res-sys-later'
+    }
     process {
         if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
             try {
                 $WSManInstance = Get-WSManInstance -ConnectionURI $PSSenderInfo.ConnectionString -ResourceURI shell -Enumerate -ErrorAction Stop
                 try {
                     $ComputerNameByAddress = ([System.Net.Dns]::GetHostByAddress($WSManInstance.ClientIP).HostName)
+                    # Preferably log when $ComputerNameByAddress -notmatch $ComputerName
                 }
                 catch {
                     $ComputerNameByAddress = 'NULL'
@@ -46,16 +56,16 @@ function Get-CurrentComputerLATER {
                 $BasePolicyQuery = @"
 SELECT [Id]
       ,[GroupId]
-      ,[Computer]
-      ,[TimesDay]
-FROM [Later].[dbo].[Policy] WHERE GroupId IN (REPLACEGUID)
+      ,[Computers]
+      ,[TimesPerDay]
+FROM [$Database].[$Schema].[$TablePolicy] WHERE GroupId IN (REPLACEGUID)
 "@
 
                 $PolicySQLQuery = $BasePolicyQuery -replace 'REPLACEGUID', ("'{0}'" -f ($UserPolicyGroups.objectGUID.Guid -join "', '"))
                 try {
-                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computer
+                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computer
                     $Policy = $Policies[0]
-                    # Preferably log that the user has more than one policy if ($Policies -gt 1)
+                    # Preferably log that the user has more than one policy if ($Policies.Count -gt 1)
                 }
                 catch {
                     throw [System.AccessViolationException]::New('No L.A.T.E.R policy found for user.')
@@ -64,13 +74,12 @@ FROM [Later].[dbo].[Policy] WHERE GroupId IN (REPLACEGUID)
                 $BasePastLaterQuery = @"
 SELECT TOP 1000 [UserId]
       ,[ComputerName]
-      ,[ComputerIPAddress]
       ,[Timestamp]
-FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEGUID' Order By TimeStamp Desc
+FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACEGUID' Order By TimeStamp Desc
 "@
 
                 $PastLaterSQLQuery = $BasePastLaterQuery -replace 'REPLACEGUID', $User.objectGUID.Guid
-                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance localhost -Database Later -Query $PastLaterSQLQuery -ErrorAction Stop
+                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PastLaterSQLQuery -ErrorAction Stop
 
                 $Now = [datetime]::Now
                 if ($null -ne $PastLater) {
@@ -80,39 +89,39 @@ FROM [Later].[dbo].[Requests] WHERE UserId = 'REPLACEGUID' Order By TimeStamp De
                     $TimeStampString = $PastLater.TimeStamp.ForEach( { $_.ToString() })
                     $RequestsToday = ($TimeStampString -replace '\s.*$') -match $Today
 
-                    if (([array]$RequestsToday).Count -gt ($Policy.TimesDay * $Policy.Computer)) {
+                    if (([array]$RequestsToday).Count -gt ($Policy.TimesPerDay * $Policy.Computers)) {
                         $ErrorNotification = 'No more requests allowed for {0} today.' -f $User.ObjectGUID.Guid
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                        $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                        $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
                     }
-                    elseif (([array]$CurrentComputerRequestsToday).Count -gt $Policy.TimesDay) {
-                        $ErrorNotification = 'No more requests allowed for computer name {0} for user {1} today.' -f $ComputerName, $User.ObjectGUID.Guid
+                    elseif (([array]$CurrentComputerRequestsToday).Count -gt $Policy.TimesPerDay) {
+                        $ErrorNotification = 'No more requests allowed for user {0} on computer name {1} today.' -f $User.ObjectGUID.Guid, $ComputerName
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                        $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                        $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
                     }
-                    elseif (([array]$PastLater.ComputerName | Sort-Object -Unique).Count -gt $Policy.Computer) {
-                        $ErrorNotification = 'User {0} only permitted to request for {1} computers. Limit reached, contact support.' -f $User.ObjectGUID.Guid, $Policy.Computer
+                    elseif (([array]$PastLater.ComputerName | Sort-Object -Unique).Count -gt $Policy.Computers) {
+                        $ErrorNotification = 'User {0} only permitted to request for {1} computers. Limit reached, contact support.' -f $User.ObjectGUID.Guid, $Policy.Computers
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                        $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                        $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
                     }
                     elseif ($CurrentComputerPastLater.Timestamp[0] -ge $Now.AddHours(-1)) {
                         $ErrorNotification = 'Request already submitted for {0}, wait time {1} Minutes.' -f $User.ObjectGUID.Guid, ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                        $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                        $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification -replace ($User.ObjectGUID.Guid, $User.Name))
                     }
                 }
                 try {
                     Get-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
-                    $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table Requests -ErrorAction Stop
+                    $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableRequests -ErrorAction Stop
                 }
                 catch {
                     $ErrorNotification = 'Unknown error: {0}' -f $_.Exception.Message
                     $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                    $Request | Write-DbaDbTableData -SqlInstance localhost -Database Later -Table FailedRequests -ErrorAction Stop
+                    $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
                     throw [System.SystemException]::New($ErrorNotification)
                 }
             }
