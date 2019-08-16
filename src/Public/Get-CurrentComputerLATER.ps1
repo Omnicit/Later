@@ -49,7 +49,7 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
 
                 $PolicySQLQuery = $BasePolicyQuery -replace 'REPLACESID', ("'{0}'" -f ($Request.UserPolicyGroups -join "', '"))
                 try {
-                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computer
+                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computers
                     $Policy = $Policies[0]
                     # Preferably log that the user has more than one policy if ($Policies.Count -gt 1)
                 }
@@ -69,6 +69,7 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
                     $CurrentComputerRequestsToday = ($CurrentComputerTimeStampString -replace '\s.*$') -match $Today
                     $TimeStampString = $PastLater.TimeStamp.ForEach( { $_.ToString() })
                     $RequestsToday = ($TimeStampString -replace '\s.*$') -match $Today
+                    $ComputersRequested = ([array]$PastLater.ComputerName | Sort-Object -Unique).Count
 
                     if (([array]$RequestsToday).Count -gt ($Policy.TimesPerDay * $Policy.Computers)) {
                         $ThrottleReached = $true
@@ -78,13 +79,19 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
                         $ThrottleReached = $true
                         $ErrorNotification = 'No more requests allowed for user {0} on computer name {1} today.' -f $Request.UserId, $ComputerName
                     }
-                    elseif (([array]$PastLater.ComputerName | Sort-Object -Unique).Count -gt $Policy.Computers) {
+                    elseif ($ComputersRequested -eq 1 -and $ComputerName -notin $PastLater.ComputerName) {
+                        $ThrottleReached = $true
+                        $ErrorNotification = 'User {0} only permitted to request for this computer {1}. Limit reached, contact support.' -f $Request.UserId, $PastLater.ComputerName
+                    }
+                    elseif ($ComputersRequested -ne 1 -and $ComputersRequested -ge $Policy.Computers) {
                         $ThrottleReached = $true
                         $ErrorNotification = 'User {0} only permitted to request for {1} computers. Limit reached, contact support.' -f $Request.UserId, $Policy.Computers
                     }
-                    elseif ($CurrentComputerPastLater.Timestamp[0] -ge $Now.AddHours(-1)) {
-                        $ThrottleReached = $true
-                        $ErrorNotification = 'Request already submitted for {0}, wait time {1} Minutes.' -f $Request.UserId, ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
+                    elseif (([array]$CurrentComputerRequestsToday).Count -gt 0) {
+                        if (($CurrentComputerPastLater.Timestamp)[0] -ge $Now.AddHours(-1)) {
+                            $ThrottleReached = $true
+                            $ErrorNotification = 'Request already submitted for {0}, wait time {1} Minutes.' -f $Request.UserId, ($PastLater[0].Timestamp - $Now.AddHours(-1)).Minutes
+                        }
                     }
                     if ($ThrottleReached) {
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
