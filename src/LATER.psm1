@@ -1,7 +1,9 @@
-[System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
 # Script variables used to point ut the SQL Instance
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssigments', '', Justification = "Used in functions")]
 [string]$Database = 'Later'
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssigments', '', Justification = "Used in functions")]
 [string]$Schema = 'dbo'
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssigments', '', Justification = "Used in functions")]
 [string]$SqlInstance = 'localhost'
 
 # All L.A.T.E.R Active Directory Groups are named with the prefix 'res-sys-later'
