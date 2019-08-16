@@ -23,11 +23,18 @@
         [ValidateNotNullOrEmpty()]
         [string]$ComputerName
     )
+    begin {
+        [string]$TablePasswordResets = 'PasswordResets'
+    }
     process {
-        if ($PSCmdlet.ShouldProcess($ComputerName, $MyInvocation.MyCommand.Name)) {
+        if ($PSCmdlet.ShouldProcess($ComputerName)) {
             try {
-                Reset-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
-                # Preferably log when a Reset-AdmPwdPassword was issued.
+                $Request = Get-LaterRequesterInfo -ComputerName $ComputerName -ErrorAction Stop
+                $Request.psobject.Properties.Remove('UserPolicyGroups')
+
+                $Reset = Reset-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
+                $Request | Add-Member -MemberType NoteProperty -Name Status -Value $Reset.Status -ErrorAction Stop
+                $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TablePasswordResets -ErrorAction Stop
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
