@@ -71,11 +71,11 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
                     $RequestsToday = ($TimeStampString -replace '\s.*$') -match $Today
                     $ComputersRequested = ([array]$PastLater.ComputerName | Sort-Object -Unique).Count
 
-                    if (([array]$RequestsToday).Count -gt ($Policy.TimesPerDay * $Policy.Computers)) {
+                    if (([array]$RequestsToday).Count -ge ($Policy.TimesPerDay * $Policy.Computers)) {
                         $ThrottleReached = $true
                         $ErrorNotification = 'No more requests allowed for {0} today.' -f $Request.UserId
                     }
-                    elseif (([array]$CurrentComputerRequestsToday).Count -gt $Policy.TimesPerDay) {
+                    elseif (([array]$CurrentComputerRequestsToday).Count -ge $Policy.TimesPerDay) {
                         $ThrottleReached = $true
                         $ErrorNotification = 'No more requests allowed for user {0} on computer name {1} today.' -f $Request.UserId, $ComputerName
                     }
