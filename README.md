@@ -3,7 +3,7 @@ This is [my](http://twitter.com/KPHaglund) realization of Local Administrator Te
 If you couldn't attend the session in person the great people of #PSConfEU have uploaded the recording on [Youtube](https://youtu.be/KVYtPpxj_S0).
 
 ## Usage
-I've [written a blogpost]() on how the concept became realized.
+I've [written a blogpost](https://omnicit.se/blogg/local-administrator-temporary-elevation-request/) on how the concept became realized.
 
 
 ## Contribution / Bugs
