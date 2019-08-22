@@ -19,7 +19,7 @@
             $progressbaroverlay1.Value = 20
         }
         catch {
-            throw [System.AccessViolationException]::New('Unable to connect to request server, contact support')
+            throw [System.AccessViolationException]::New('Unable to connect to request server, contact support.')
         }
 
         # Retrieve the current LAPS password for $Env:ComputerName using Invoke-Command. Enter-PSSession and Import-PSSession is unavailable because of the JEA Configuration.
@@ -30,13 +30,13 @@
             $progressbaroverlay1.Value = 30
         }
         catch [System.Management.Automation.Runspaces.InvalidRunspaceStateException] {
-            throw [System.Management.Automation.Runspaces.InvalidRunspaceStateException]::New('Restart the Later application and try again')
+            throw [System.Management.Automation.Runspaces.InvalidRunspaceStateException]::New('Restart the Later application and try again.')
         }
         catch [System.Management.Automation.RemoteException] {
             throw [System.AccessViolationException]::New(($_.Exception.Message -replace '^.*:\s'))
         }
         catch {
-            throw [System.InvalidOperationException]::New('Something went wrong, contact support with the current timestamp {0}' -f ([datetime]::Now.ToString()))
+            throw [System.InvalidOperationException]::New('Something went wrong, contact support with the current timestamp {0}.' -f ([datetime]::Now.ToString()))
         }
 
         # Update Group Policy to allow for 90 (with +- 30 minutes offset time) of administrator time.
@@ -46,7 +46,7 @@
             As encoded command
             Add-LocalGroupMember -Group Administrators -Member 'NT Authority\Interactive';
             Add-Type -AssemblyName System.Web;
-            Set-LocalUser -Name Administrator -Password $Random ([System.Web.Security.Membership]::GeneratePassword(24, 5) | ConvertTo-SecureString -AsPlainText -Force)
+            Set-LocalUser -Name Administrator -Password ([System.Web.Security.Membership]::GeneratePassword(24, 5) | ConvertTo-SecureString -AsPlainText -Force)
         #>
         $Command = 'QQBkAGQALQBMAG8AYwBhAGwARwByAG8AdQBwAE0AZQBtAGIAZQByACAALQBHAHIAbwB1AHAAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByAHMAIAAtAE0AZQBtAGIAZQByACAAJwBOAFQAIABBAHUAdABoAG8AcgBpAHQAeQBcAEkAbgB0AGUAcgBhAGMAdABpAHYAZQAnADsADQAKAEEAZABkAC0AVAB5AHAAZQAgAC0AQQBzAHMAZQBtAGIAbAB5AE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFcAZQBiADsADQAKAFMAZQB0AC0ATABvAGMAYQBsAFUAcwBlAHIAIAAtAE4AYQBtAGUAIABBAGQAbQBpAG4AaQBzAHQAcgBhAHQAbwByACAALQBQAGEAcwBzAHcAbwByAGQAIAAoAFsAUwB5AHMAdABlAG0ALgBXAGUAYgAuAFMAZQBjAHUAcgBpAHQAeQAuAE0AZQBtAGIAZQByAHMAaABpAHAAXQA6ADoARwBlAG4AZQByAGEAdABlAFAAYQBzAHMAdwBvAHIAZAAoADIANAAsACAANQApACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0AUwBlAGMAdQByAGUAUwB0AHIAaQBuAGcAIAAtAEEAcwBQAGwAYQBpAG4AVABlAHgAdAAgAC0ARgBvAHIAYwBlACkA'
         $Cred = [pscredential]::new('Administrator', (ConvertTo-SecureString -String $Later.Password -AsPlainText -Force))
@@ -86,7 +86,7 @@
                 break
             }
             elseif ($Count -eq 5) {
-                throw [System.MissingMemberException]::New('Something went wrong')
+                throw [System.MissingMemberException]::New('Something went wrong.')
             }
             else {
                 continue
