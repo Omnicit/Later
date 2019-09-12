@@ -1,3 +1,38 @@
+function Invoke-SQL {
+    <#
+    .SYNOPSIS
+    Used to query a database using ADO .Net
+
+    .DESCRIPTION
+    Used to query a database using ADO .Net
+
+    .EXAMPLE
+    Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $PolicySQLQuery
+
+    #>
+    param(
+        [string] $dataSource = ".\SQLEXPRESS",
+        [string] $database = "MasterData",
+        [string] $sqlCommand = $(throw "Please specify a query.")
+      )
+
+    $connectionString = "Data Source=$dataSource; " +
+            "Integrated Security=SSPI; " +
+            "Initial Catalog=$database"
+
+    $connection = new-object system.data.SqlClient.SQLConnection($connectionString)
+    $command = new-object system.data.sqlclient.sqlcommand($sqlCommand,$connection)
+    $connection.Open()
+
+    $adapter = New-Object System.Data.sqlclient.sqlDataAdapter $command
+    $dataset = New-Object System.Data.DataSet
+    $adapter.Fill($dataSet) | Out-Null
+
+    $connection.Close()
+    $dataSet.Tables
+
+}
+
 function Get-CurrentComputerLATER {
     <#
     .SYNOPSIS
@@ -41,6 +76,15 @@ SELECT TOP 1000 [UserId]
       ,[Timestamp]
 FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By TimeStamp Desc
 "@
+        $InsertTableRequests = @"
+INSERT INTO [$Database].[$Schema].[$TableRequests](UserId,ComputerName,ComputerNameByAddress,ComputerIPAddress,ComputerNameMatchAddress,Timestamp)
+	VALUES ('{0}','{1}','{2}','{3}','{4}','{5}')
+"@
+
+        $InsertTableFailedRequests = @"
+INSERT INTO [$Database].[$Schema].[$TableFailedRequests](UserId,ComputerName,ComputerNameByAddress,ComputerIPAddress,ComputerNameMatchAddress,Error,Timestamp)
+	VALUES ('{0}','{1}','{2}','{3}','{4}','{5}','{6}')
+"@ 
     }
     process {
         if ($PSCmdlet.ShouldProcess($ComputerName)) {
@@ -49,7 +93,7 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
 
                 $PolicySQLQuery = $BasePolicyQuery -replace 'REPLACESID', ("'{0}'" -f ($Request.UserPolicyGroups -join "', '"))
                 try {
-                    [Object[]]$Policies = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computers
+                    [Object[]]$Policies = Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $PolicySQLQuery -ErrorAction Stop | Sort-Object -Property Computers
                     $Policy = $Policies[0]
                     # Preferably log that the user has more than one policy if ($Policies.Count -gt 1)
                 }
@@ -58,7 +102,7 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
                 }
 
                 $PastLaterSQLQuery = $BasePastLaterQuery -replace 'REPLACESID', $Request.UserId
-                [Object[]]$PastLater = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $PastLaterSQLQuery -ErrorAction Stop
+                [Object[]]$PastLater = Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $PastLaterSQLQuery -ErrorAction Stop
 
                 $Request.psobject.Properties.Remove('UserPolicyGroups')
                 $Now = [datetime]::Now
@@ -95,18 +139,21 @@ FROM [$Database].[$Schema].[$TableRequests] WHERE UserId = 'REPLACESID' Order By
                     }
                     if ($ThrottleReached) {
                         $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                        $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
+                        $InsertTableFailedRequestsValues = $InsertTableFailedRequests -f $Request.UserId,$Request.ComputerName,$Request.ComputerNameByAddress,$Request.ComputerIPAddress,$Request.ComputerNameMatchAddress,$Request.Error,$Now
+                        Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $InsertTableFailedRequestsValues -ErrorAction Stop
                         throw [System.AccessViolationException]::New($ErrorNotification -replace ($Request.UserId, ($PSSenderInfo.ConnectedUser -replace '^(?:.+\\)')))
                     }
                 }
                 try {
                     Get-AdmPwdPassword -ComputerName $ComputerName -ErrorAction Stop
-                    $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableRequests -ErrorAction Stop
+                    $InsertTableRequestsValues = $InsertTableRequests -f $Request.UserId,$Request.ComputerName,$Request.ComputerNameByAddress,$Request.ComputerIPAddress,$Request.ComputerNameMatchAddress,$Now
+                    Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $InsertTableRequestsValues -ErrorAction Stop
                 }
                 catch {
                     $ErrorNotification = 'Unknown error: {0}' -f $_.Exception.Message
                     $Request | Add-Member -MemberType NoteProperty -Name Error -Value $ErrorNotification -ErrorAction Stop
-                    $Request | Write-DbaDbTableData -SqlInstance $SqlInstance -Database $Database -Table $TableFailedRequests -ErrorAction Stop
+                    $InsertTableFailedRequestsValues = $InsertTableFailedRequests -f $Request.UserId,$Request.ComputerName,$Request.ComputerNameByAddress,$Request.ComputerIPAddress,$Request.ComputerNameMatchAddress,$Request.Error,$Now
+                    Invoke-SQL -dataSource $SqlInstance -Database $Database -sqlCommand $InsertTableFailedRequestsValues -ErrorAction Stop
                     throw [System.SystemException]::New($ErrorNotification)
                 }
             }
